@@ -1,44 +1,80 @@
 # RNase R processes ribosomal RNA precursors in *Haloferax volcanii*
 
-**Code accompanying the manuscript** by Michael Jüttner, Felix Grünberger, Rosalie Kieffer, Viola Goebel, Dina Grohmann, Lisa-Katharina Maier, Sébastien Ferreira-Cerca and Anita Marchfelder.  
-*Frontiers in Microbiology* (submitted 2026; manuscript ID **1973540**). Publication details and citation should be updated once the article is published.
+Michael Jüttner, Felix Grünberger, Rosalie Kieffer, Viola Goebel, Dina Grohmann, Lisa-Katharina Maier, Sébastien Ferreira-Cerca and Anita Marchfelder
 
-This repository contains a **minimal selection of main-figure computational analyses** (not all exploratory analyses or supplementary figures). The scripts were reduced from the authors' original R code to focus on main experimental and long-read sequencing results.
+*Frontiers in Microbiology* · Manuscript ID 1973540
+
+## About this repository
+
+This repository contains the Nanopore PCR-cDNA processing workflow and R scripts used to analyse transcript abundance, RNA ends, degradation intermediates and rRNA maturation in wild-type and Δ*rnr* *Haloferax volcanii*.
+
+The code covers the principal sequencing analyses and the generation of selected main-manuscript figures.
+
+## Nanopore sequencing and mapping
+
+PCR-cDNA libraries were prepared using the Oxford Nanopore SQK-PCB114.24 kit, with a custom 3′ adapter strategy to preserve transcript-end information, and sequenced on R10.4.1 flow cells.
+
+The processing steps are collected in [`pipeline/nanopore_processing.sh`](pipeline/nanopore_processing.sh):
+
+| Step | Processing |
+|---|---|
+| `basecall` | Dorado 0.8.0; SUP model `sup@v5.0.0` |
+| `demux` | Dorado demultiplexing with `SQK-PCB114-24` |
+| `trim` | Pychopper full-length read orientation with custom primers; Cutadapt linker and 5′-end trimming |
+| `map` | Minimap2 alignment to the *H. volcanii* reference genome |
+| `dedup` | UMI correction, PCR duplicate removal and UMI primer trimming |
+| `remap` | Alignment of deduplicated reads to the reference genome |
+| `circular` | Mapping to permuted 16S and 23S rRNA references |
+| `coverage` | Strand-specific 5′ and 3′ end coverage using deepTools |
+| `peaks` | Enriched end-position detection using `termseq_peaks` |
+
+The pipeline uses Minimap2 `-ax map-ont --MD`, SAMtools for BAM processing, UMI-tools for PCR duplicate removal and deepTools `bamCoverage` with CPM normalization and single-base offsets. The `peaks` step operates on `barcode20`–`barcode23`, representing the rRNA-depleted wild-type and Δ*rnr* libraries used for transcript-end analyses.
+
+### Running the workflow
+
+Set the input directory and run each processing stage in sequence:
+
+```bash
+export DATA_DIR=/path/to/data
+export POD5_DIR=/path/to/pod5
+export PRIMER_FASTA=/path/to/pychopper_custom.fasta
+export SAMPLE_INFO=pipeline/sample_info.csv
+export THREADS=16
+export DORADO_DEVICE=cuda:0,1
+
+bash pipeline/nanopore_processing.sh basecall
+bash pipeline/nanopore_processing.sh demux
+bash pipeline/nanopore_processing.sh trim
+bash pipeline/nanopore_processing.sh map
+bash pipeline/nanopore_processing.sh dedup
+bash pipeline/nanopore_processing.sh remap
+bash pipeline/nanopore_processing.sh circular
+bash pipeline/nanopore_processing.sh coverage
+bash pipeline/nanopore_processing.sh peaks
+```
+
+The workflow expects `data/genome/hvo.fasta` and a custom Pychopper primer FASTA. For circular rRNA mapping, the reference names are read from `pipeline/sample_info.csv`; reference FASTA files are stored relative to `data/genome/`. The corresponding files (`circ/circ16S_hvo.fasta` and `circ/circ23S_hvo.fasta`) contain permuted rRNA templates. These references and the experimental input data are not included.
+
+The end-position annotation and filtering used for the final analysis require the processed peak tables described below.
 
 ## Analysis scripts
 
-| Manuscript figure | Script | Output |
+| Figure | Script | Analysis |
 |---|---|---|
-| Fig. 2 | `scripts/Fig2_growth.R` | Growth-curve summary |
-| Fig. 3 | `scripts/Fig3_differential_expression.R` | DESeq2 differential expression and arCOG-annotated MA plot |
-| Fig. 4B–E | `scripts/Fig4_transcript_ends.R` | Primary 5′/3′ end overlaps and terminal read distributions |
-| Fig. 5B–C | `scripts/Fig5_transcript_classification.R` | Full-length, 5′-/3′-processed and degraded read classifications |
-| Fig. 8B–C | `scripts/Fig8_rRNA_precursors.R` | 16S/23S intermediate classification, DESeq2 and RNA-type proportions |
+| Figure 2 | [`Fig2_growth.R`](scripts/Fig2_growth.R) | Growth under different culture conditions |
+| Figure 3 | [`Fig3_differential_expression.R`](scripts/Fig3_differential_expression.R) | Differential gene expression and arCOG annotation |
+| Figure 4B–E | [`Fig4_transcript_ends.R`](scripts/Fig4_transcript_ends.R) | Transcript-end overlap and positional coverage profiles |
+| Figure 5B–C | [`Fig5_transcript_classification.R`](scripts/Fig5_transcript_classification.R) | Full-length and processed mRNA classes |
+| Figure 8B–C | [`Fig8_rRNA_precursors.R`](scripts/Fig8_rRNA_precursors.R) | rRNA precursor classification, differential abundance and RNA composition |
 
-Figure 1 (protein-domain/structural comparison), Figures 6 and 10 (models), and Northern blot Figures 7 and 9 are **not produced by these R scripts**; their illustrations/images are not included. The source-generated supplementary analyses were excluded intentionally.
+Common R imports and annotation functions are defined in [`scripts/helpers.R`](scripts/helpers.R). Scripts are run from the repository root and write figures to `figures/`.
 
-## Data
+The input directory contains genome annotations (`genome/`), sample metadata (`samples/`), processed count and peak tables (`Rdata/`), deduplicated BAM alignments and strand-specific coverage files (`bamCoverage/`). Growth measurements are read from `data/growth/`.
 
-PCR-cDNA sequencing data: **ENA [PRJEB87392](https://www.ebi.ac.uk/ena/browser/view/PRJEB87392)**. The code assumes processed reference annotations, BAM alignments, peak/coverage tables, sample metadata, and growth measurements are supplied under `data/`. These files are **not included in the repository**.
+## Data availability
 
-Required processed input files include:
-
-- `data/genome/hvo.gff`, `data/genome/hvo.fasta`, `data/genome/hvo_annotation_arcog.tsv`
-- `data/samples/ont_run_info.xlsx`, `data/growth/Neue Wachstumskurven.xlsx`
-- `data/Rdata/tss_peaks_all_longread.tsv`, `data/Rdata/tts_peaks_all_longread_cov5.tsv`
-- `data/Rdata/total_frame_anno_g.tsv`, `data/Rdata/counts_all_tab.tsv`
-- `data/mapped_fl_dedup/` (UMI-deduplicated BAMs for Fig. 3)
-- `data/mapped_fl_only_umi_removed/`, `data/mapped_fl_only_umi_removed_circ16S/`, `data/mapped_fl_only_umi_removed_circ23S/` (BAMs for Fig. 8)
-- `data/bamCoverage/` (strand-specific end5/end3 CPM bedGraph files for Fig. 4)
-
-The *Methods* section of the manuscript describes upstream read processing (Dorado, pychopper, Cutadapt, Minimap2, SAMtools, UMI-tools and end-position calling). **This code package starts from the mapped/processed data** and is not a complete raw-POD5-to-figure workflow.
-
-## Running the scripts
-
-Run each R script from the repository root in an R session with the necessary CRAN/Bioconductor dependencies installed. Output PDFs are written to `figures/`. The shared R functions and imports are in `scripts/helpers.R`. Scripts may require substantial memory to process whole-genome coverage tracks.
-
-> **Author-review status (October 2026):** the scripts were trimmed without access to input datasets, and the revised versions have not been rerun or validated against the final assembled manuscript figures. Fig. 4E in particular uses an `intragenic` 3′-end class in its source code although the caption refers to primary termini. This must be checked before publication. This README does not claim full computational reproducibility without the missing inputs.
+Nanopore PCR-cDNA sequencing data are available from the European Nucleotide Archive under accession [PRJEB87392](https://www.ebi.ac.uk/ena/browser/view/PRJEB87392).
 
 ## Code availability
 
-Repository: `https://github.com/felixgrunberger/RNaseR_Haloferax` (the URL specified in the manuscript’s Code availability statement). The present code is a minimal draft for author review; results must be checked against the final figures before the repository is made public.
+https://github.com/felixgrunberger/RNaseR_Haloferax
